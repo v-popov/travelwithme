@@ -1,8 +1,8 @@
 import logging
 import json
+from urllib.request import urlopen
 import os
 from telegram import Update, InputFile, TelegramObject
-from telegram import Bot #._bot import getFile
 from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTypes, CommandHandler
 
 # https://docs.python-telegram-bot.org/en/v20.0a1/telegram.ext.filters.html
@@ -12,7 +12,7 @@ from telegram.ext import filters, MessageHandler, ApplicationBuilder, ContextTyp
 token = os.environ['tg_token']
 admin_chat_id = os.environ['admin_chat_id']
 
-path = '/app'
+path = os.environ['path']
 
 username_to_chat_id_filename = 'username_to_chat_id.json'
 username_to_chat_id = {}
@@ -29,17 +29,27 @@ def init():
         print('Creating new username_to_chat_id')
         with open(username_to_chat_id_filename, 'w', encoding='utf-8') as file:
             dummy_dict = {"test": 123}
-            json.dump(dummy_dict, file, ensure_ascii=False, indent=4)
+            json.dump(dummy_dict, file, ensure_ascii=False)
+
+
+def update_username_to_chat_id(new_username_to_chat_id):
+    global username_to_chat_id
+    print(f"Updating {username_to_chat_id} with new values: {new_username_to_chat_id}")
+    username_to_chat_id.update(new_username_to_chat_id)
+    print(f"Result: {username_to_chat_id}")
+    with open(username_to_chat_id_filename, 'r+') as file:
+        json.dump(username_to_chat_id, file, ensure_ascii=False)
 
 
 def add_username_to_chat_id_entry(username, chat_id):
+    global username_to_chat_id
     username_to_chat_id[username] = chat_id
     init()
     with open(username_to_chat_id_filename, 'r+') as file:
         file_data = json.load(file)
         file_data.update({username: chat_id})
         file.seek(0)
-        json.dump(file_data, file, indent=4)
+        json.dump(file_data, file, ensure_ascii=False)
 
 
 async def start(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
@@ -93,15 +103,17 @@ async def list_registered_contacts(update: Update, context: 'ContextTypes.DEFAUL
 async def echo(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
     print(f'6 UPDATE: {update}')
     from_user = update['message']['from']['id']
-    if len(update.message['photo']) > 0:
-        fileID = update.message['photo'][-1]['file_id']
-        caption = update.message['caption']
+    if from_user in groups:
         for to_user in groups[from_user]:
             print(f'Sending from user {from_user} to user {to_user}')
             try:
-                await context.bot.send_photo(chat_id=to_user, caption=caption, photo=fileID)
+                await context.bot.forward_message(chat_id=to_user, from_chat_id=update['message']['from']['id'], message_id=update['message']['message_id'])
             except:
-                await context.bot.send_photo(chat_id=username_to_chat_id[to_user], caption=caption, photo=fileID)
+                try:
+                    await context.bot.forward_message(chat_id=username_to_chat_id[to_user], from_chat_id=update['message']['from']['id'], message_id=update['message']['message_id'])
+                except:
+                    await context.bot.send_message(chat_id=admin_chat_id, text=f"Unable send message to {to_user}")
+
 
 
 async def backup(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
@@ -112,14 +124,21 @@ async def backup(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
 
 
 async def download(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
-    if update.effective_chat.id == admin_chat_id:
+    print(f"8 UPDATE: {update}\n")
+    print(f'update.effective_chat.id: {update.effective_chat.id}; admin_chat_id: {admin_chat_id}')
+    if str(update.effective_chat.id) == str(admin_chat_id):
+        print('Downloading')
         # check for sender id
-        print(f"8 UPDATE: {update}\n")
         # file = await context.bot.get_file(update.message.document)#.download()
         # writing to a custom file
         with open(f"{path}/username_to_chat_id.json", 'wb') as f:
             file = await context.bot.get_file(update.message.document)
-            await file.download(out=f)
+            print(f"file: {file}")
+            q = await file.download(out=f)
+            new_username_to_chat_id = json.loads(urlopen(file['file_path']).read().decode("utf-8"))
+            print(f"q: {q}")
+            print(f"new_username_to_chat_id: {type(new_username_to_chat_id)}; {new_username_to_chat_id}")
+            update_username_to_chat_id(new_username_to_chat_id)
 
 
 # unique AgAD9h0AA66BSQ
@@ -146,13 +165,13 @@ if __name__ == '__main__':
     contact_handler = MessageHandler(filters.CONTACT, contact)
     application.add_handler(contact_handler)
 
-    download_handler = MessageHandler(filters.Document.ALL, download)
-    application.add_handler(download_handler)
-
     contact_handler_url = MessageHandler(filters.TEXT & (filters.Entity('url') | filters.Entity('text_link')), contact_url)
     application.add_handler(contact_handler_url)
 
-    echo_handler = MessageHandler(filters.ALL, echo)
+    echo_handler = MessageHandler(filters.PHOTO | filters.VIDEO, echo)
     application.add_handler(echo_handler)
+
+    download_handler = MessageHandler(filters.Document.FileExtension('json'), download)
+    application.add_handler(download_handler)
 
     application.run_polling()
