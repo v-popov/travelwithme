@@ -124,8 +124,11 @@ async def contact(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
     print(f"2 UPDATE: {update}\n")
     contact = update['message']['contact']
     to_user = contact['user_id']
-    name = get_name(contact)
-    await _add_contact(update, context, to_user, name)
+    if to_user is None:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text='Please, share the username of this contact')
+    else:
+        name = get_name(contact)
+        await _add_contact(update, context, to_user, name)
 
 
 async def contact_url(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
@@ -140,7 +143,6 @@ async def delete(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
     from_user = str(update['message']['from']['id'])
     msg_text = update['message']['text']
     msg_text = msg_text.replace('/delete', '')
-    print(f'msg_text: {msg_text}')
     if msg_text == '':
         await context.bot.send_message(chat_id=from_user, text=f"To remove a contact from the bot, send /list command to bot, then pick a number corresponding to the contact you want to delete and send /delete command followed by that number. E.g., /delete 2")
     elif from_user in groups:
@@ -163,14 +165,12 @@ async def delete(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
 async def list_registered_contacts(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
     print(f"5 UPDATE: {update}\n")
     from_user = f"{update.effective_chat.id}"
-    print(f"Groups: {groups}")
     if (from_user in groups) and (len(groups[from_user]['names']) > 0):
         registered_contacts_txt = ''
         for i, name in enumerate(groups[from_user]['names'], start=1):
             registered_contacts_txt += f"{i}) {name};\n"
     else:
         registered_contacts_txt = 'No contacts registered yet'
-    print(f"registered_contacts_txt: {registered_contacts_txt}")
     await context.bot.send_message(chat_id=from_user, text=registered_contacts_txt)
 
 
@@ -206,7 +206,6 @@ async def backup(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
 
 async def download(update: Update, context: 'ContextTypes.DEFAULT_TYPE'):
     print(f"8 UPDATE: {update}\n")
-    #if str(update.effective_chat.id) == str(admin_chat_id):
     print('Downloading')
     document = update.message.document
     filename = document['file_name']
